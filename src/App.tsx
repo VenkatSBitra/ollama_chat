@@ -5,11 +5,12 @@ import { Sender } from '@ant-design/x';
 import { CloudUploadOutlined, LinkOutlined, PlusSquareOutlined } from '@ant-design/icons';
 import { Conversations } from '@ant-design/x';
 import type { ConversationsProps } from '@ant-design/x';
-import { DeleteOutlined, EditOutlined, StopOutlined, UserOutlined, RobotOutlined } from '@ant-design/icons';
+import { DeleteOutlined, EditOutlined, StopOutlined, UserOutlined, RedoOutlined, RobotOutlined } from '@ant-design/icons';
 import ollama from 'ollama';
 import ImageSelector from './components/ImageSelector';
 import MarkdownRenderer from './components/MarkdownRenderer';
 import TextArea from 'antd/es/input/TextArea';
+import MultipleMarkdownRenderer from './components/MultipleMarkdownRenderer';
 
 const { Header, Sider, Content } = Layout;
 
@@ -63,6 +64,7 @@ const App: React.FC = () => {
     
     // Current Chat State
     const [messages, setMessages] = useState<Message[]>([]);
+    const [allMessages, setAllMessages] = useState<{[id: number]: Message[]}>({});
     const [systemPrompt, setSystemPrompt] = useState<string>('You are a helpful assistant.');
     const [temperature, setTemperature] = useState<number>(0.5);
     const [uploadedImages, setUploadedImages] = useState<string[]>([]);
@@ -324,13 +326,6 @@ const App: React.FC = () => {
     return (
         <Layout style={{ height: '100vh' }}>
             {contextHolder}
-            {/* <Sider width='16%' style={{ background: '#fff' }}>
-                <Typography style={{ textAlign: 'center' }}> Ollama Chat </Typography>
-                <hr />
-                <Typography style={{ textAlign: 'center' }}>Chats</Typography>
-                <Button onClick={createConversation}>New Chat</Button>
-                <Conversations items={conversations} menu={menuConfig} onActiveChange={v => changeConversation(v)} />
-            </Sider> */}
             <Sider 
                 width="16%" 
                 style={{ 
@@ -439,15 +434,75 @@ const App: React.FC = () => {
                                                 {/* Message Content */}
                                                 <div
                                                     style={{
-                                                        background: '#f1f1f1',
-                                                        padding: '10px',
-                                                        borderRadius: '5px',
-                                                        maxWidth: '90%',
-                                                        wordBreak: 'break-word',
+                                                        display: 'flex',
+                                                        flexDirection: 'column',
+                                                        alignItems: item.role === 'user' ? 'flex-end' : 'flex-start',
+                                                        width: '100%',
                                                     }}
                                                 >
-                                                    <MarkdownRenderer content={item.content} />
+                                                    <div
+                                                        style={{
+                                                            background: '#f1f1f1',
+                                                            padding: '10px',
+                                                            borderRadius: '5px',
+                                                            maxWidth: '90%',
+                                                            wordBreak: 'break-word',
+                                                        }}
+                                                    >
+                                                        
+                                                        {item.role === 'assistant' && allMessages[messages.indexOf(item)] 
+                                                            ? <MultipleMarkdownRenderer markdownUnits={[...allMessages[messages.indexOf(item)].map(e => e.content), item.content]} />
+                                                            : <MarkdownRenderer content={item.content} />
+                                                        }
+
+                                                    </div>
+                                                    {item.role === 'user' && (
+                                                        <div style={{ marginRight: '10px' }}>
+                                                            <Button
+                                                                type="text"
+                                                                icon={<DeleteOutlined />}
+                                                                onClick={() => {
+                                                                    const index = messages.indexOf(item);
+                                                                    setMessages(messages.filter((msg) => msg !== item).filter((_, i) => i !== index));
+                                                                    setAllMessages((prev) => {
+                                                                        // Reset other indices to -2 if greater than deleted index
+                                                                        const newAllMessages: {[id: number]: Message[]} = {};
+                                                                        for (let i = 0; i < index; i++) {
+                                                                            if (prev[i] !== undefined) {
+                                                                                newAllMessages[i] = prev[i];
+                                                                            }
+                                                                        }
+                                                                        for (let i = index + 2; i < messages.length; i++) {
+                                                                            if (prev[i] !== undefined) {
+                                                                                newAllMessages[i - 2] = prev[i];
+                                                                            }
+                                                                        }
+                                                                        return newAllMessages;
+                                                                    });
+                                                                }}
+                                                            />
+                                                            <Button
+                                                                type="text"
+                                                                icon={<RedoOutlined />}
+                                                                onClick={() => {
+                                                                    const index = messages.indexOf(item);
+                                                                    setAllMessages((prev) => {
+                                                                        const newAllMessages = { ...prev };
+                                                                        if (newAllMessages[index + 1] === undefined) {
+                                                                            newAllMessages[index + 1] = [];
+                                                                        }
+                                                                        newAllMessages[index + 1] = [...newAllMessages[index + 1], messages[index + 1]];
+                                                                        console.log(newAllMessages);
+                                                                        return newAllMessages;
+                                                                    });
+                                                                    setMessages(messages.slice(0, index + 1));
+                                                                    setCurrMessage(item.content);
+                                                                }}
+                                                            />
+                                                        </div>
+                                                    )}
                                                 </div>
+                                                
                                             </List.Item>
                                         )}
                                         style={{ width: '100%' }}
@@ -502,6 +557,9 @@ const App: React.FC = () => {
                         background: '#f5f5f5',
                         padding: '16px',
                         boxShadow: '2px 0 8px rgba(0, 0, 0, 0.1)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        height: '100%',
                     }}
                 >
                     {/* Section: Chat Settings */}
@@ -617,6 +675,34 @@ const App: React.FC = () => {
                         selectedImages={selectedImages}
                         setSelectedImages={setSelectedImages}
                     />
+
+                    {/* Export Conversation */}
+                    <Button
+                        type="primary"
+                        block
+                        style={{ marginTop: 'auto' }}
+                        onClick={() => {
+                            {/* I want to save as a Markdown file */}
+                            const conversation = messages.map((message, index) => {
+                                return {
+                                    role: message.role,
+                                    content: message.role === 'user' ? message.content : (allMessages[index] ? [...allMessages[index].map((e, i) => `# Answer ${Math.floor(index / 2) + 1}.${i + 1}\n` + e.content), `# Answer ${Math.floor(index / 2) + 1}.${allMessages[index].length + 1}\n` + message.content] : [`# Answer ${Math.floor(index / 2) + 1}.${1}\n` + message.content]),
+                                };
+                            });
+                            const output = conversation.map((message, index) => {
+                                return message.role === 'user' ? (`# Question ${Math.floor(index / 2) + 1}\n` + message.content) : (message.content as string[]).join('\n');
+                            }).join('\n\n');
+                            const blob = new Blob([output], { type: 'text/markdown' });
+                            const url = URL.createObjectURL(blob);
+                            const a = document.createElement('a');
+                            a.href = url;
+                            a.download = 'conversation.md';
+                            a.click();
+                            URL.revokeObjectURL(url);
+                        }}
+                    >
+                        Export Conversation
+                    </Button>
                 </Sider>
             }
         </Layout>
